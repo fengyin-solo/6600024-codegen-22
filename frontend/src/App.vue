@@ -7,6 +7,9 @@
         <h1 class="app-title">OPC-UA 工业节点浏览与数据采集</h1>
       </div>
       <div class="header-right">
+        <el-badge :value="store.activeAnomaliesCount" :max="99" :hidden="store.activeAnomaliesCount === 0" type="warning" class="alarm-badge">
+          <el-icon :size="20" class="text-orange-400"><Warning /></el-icon>
+        </el-badge>
         <el-badge :value="store.activeAlarmsCount" :max="99" class="alarm-badge">
           <el-icon :size="20" class="text-yellow-400"><Bell /></el-icon>
         </el-badge>
@@ -104,8 +107,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Monitor, Bell, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Monitor, Bell, CircleCheck, CircleClose, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useOpcuaStore } from './store/opcua'
 import NodeTree from './components/NodeTree.vue'
@@ -163,6 +166,17 @@ function getSeverityLabel(severity: AlarmEvent['severity']) {
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false })
 }
+
+// 新增异常波动风险时实时提示
+watch(
+  () => store.anomalies.length,
+  (newLen, oldLen) => {
+    if (newLen > (oldLen ?? 0) && store.anomalies[0]) {
+      const a = store.anomalies[0]
+      ElMessage.warning(`异常波动风险：${a.nodeName} ${a.message}`)
+    }
+  }
+)
 
 onMounted(() => {
   store.connect()

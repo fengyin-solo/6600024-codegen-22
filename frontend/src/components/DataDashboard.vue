@@ -126,20 +126,209 @@
         </div>
       </div>
     </div>
+
+    <!-- 异常波动识别区域 -->
+    <div class="anomaly-section">
+      <div class="anomaly-section-header">
+        <h3 class="section-title anomaly-title">
+          <el-icon class="text-orange-400"><Warning /></el-icon>
+          异常波动识别
+        </h3>
+        <div class="anomaly-header-actions">
+          <el-button type="primary" size="small" text @click="configDialogVisible = true">
+            <el-icon><Setting /></el-icon>
+            检测配置
+          </el-button>
+          <el-button
+            v-if="store.anomalies.length > 0"
+            type="danger"
+            size="small"
+            text
+            @click="store.clearAnomalies()"
+          >
+            清空
+          </el-button>
+        </div>
+      </div>
+
+      <div class="anomaly-stats">
+        <el-tag type="danger" size="small">严重: {{ store.criticalAnomaliesCount }}</el-tag>
+        <el-tag type="warning" size="small">活跃: {{ store.activeAnomaliesCount }}</el-tag>
+        <el-tag type="info" size="small">总计: {{ store.anomalies.length }}</el-tag>
+      </div>
+
+      <div class="anomaly-list">
+        <div
+          v-for="anomaly in store.anomalies"
+          :key="anomaly.id"
+          class="anomaly-item"
+          :class="{
+            'anomaly-critical': anomaly.severity === 'Critical',
+            'anomaly-high': anomaly.severity === 'High',
+            'anomaly-medium': anomaly.severity === 'Medium',
+            'anomaly-acknowledged': anomaly.acknowledged
+          }"
+        >
+          <div class="anomaly-item-header">
+            <el-tag
+              :type="getAnomalySeverityType(anomaly.severity)"
+              size="small"
+              effect="dark"
+            >
+              {{ getAnomalySeverityLabel(anomaly.severity) }}
+            </el-tag>
+            <span class="anomaly-time">{{ formatAnomalyTime(anomaly.timestamp) }}</span>
+          </div>
+          <div class="anomaly-item-body">
+            <div class="anomaly-node">
+              <span class="anomaly-node-name">{{ anomaly.nodeName }}</span>
+              <span class="anomaly-ratio">×{{ anomaly.ratio.toFixed(1) }}</span>
+            </div>
+            <p class="anomaly-message">{{ anomaly.message }}</p>
+            <div class="anomaly-values">
+              <span class="value-prev">{{ anomaly.prevValue.toFixed(2) }}</span>
+              <el-icon class="text-gray-500"><ArrowRight /></el-icon>
+              <span class="value-cur">{{ anomaly.currentValue.toFixed(2) }}</span>
+            </div>
+          </div>
+          <div class="anomaly-item-actions">
+            <el-button type="primary" size="small" text @click="openFragment(anomaly)">
+              查看历史片段
+            </el-button>
+            <el-button
+              v-if="!anomaly.acknowledged"
+              type="success"
+              size="small"
+              text
+              @click="store.acknowledgeAnomaly(anomaly.id)"
+            >
+              确认
+            </el-button>
+          </div>
+        </div>
+
+        <div v-if="store.anomalies.length === 0" class="no-anomalies">
+          <el-empty description="暂无异常波动风险" :image-size="60" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 关联历史片段弹窗 -->
+    <el-dialog
+      v-model="fragmentDialogVisible"
+      title="关联历史片段"
+      width="640px"
+      class="fragment-dialog"
+      align-center
+    >
+      <template v-if="selectedAnomaly">
+        <el-descriptions :column="2" size="small" border class="fragment-descriptions">
+          <el-descriptions-item label="节点">{{ selectedAnomaly.nodeName }}</el-descriptions-item>
+          <el-descriptions-item label="严重程度">
+            <el-tag
+              :type="getAnomalySeverityType(selectedAnomaly.severity)"
+              size="small"
+              effect="dark"
+            >
+              {{ getAnomalySeverityLabel(selectedAnomaly.severity) }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="变化量">{{ selectedAnomaly.delta.toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="基线波动">{{ selectedAnomaly.baselineVolatility.toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="变化倍数">×{{ selectedAnomaly.ratio.toFixed(1) }}</el-descriptions-item>
+          <el-descriptions-item label="连续突变">{{ selectedAnomaly.consecutiveCount }} 次</el-descriptions-item>
+        </el-descriptions>
+        <v-chart :option="fragmentChartOption" autoresize class="fragment-chart" />
+        <p class="fragment-tip">红色标记为突变采样点，曲线展示突变前后的关联历史片段</p>
+      </template>
+    </el-dialog>
+
+    <!-- 异常波动识别参数配置 -->
+    <el-dialog
+      v-model="configDialogVisible"
+      title="异常波动检测配置"
+      width="480px"
+      class="config-dialog"
+      align-center
+    >
+      <el-form :model="localConfig" label-width="140px" size="default">
+        <el-form-item label="基线窗口大小">
+          <el-slider
+            v-model="localConfig.windowSize"
+            :min="5"
+            :max="30"
+            :step="1"
+            show-input
+            input-size="small"
+          />
+          <span class="form-tip">用于计算基线波动率的近期采样点数</span>
+        </el-form-item>
+        <el-form-item label="突变判定倍数">
+          <el-slider
+            v-model="localConfig.mutationFactor"
+            :min="2"
+            :max="10"
+            :step="0.5"
+            show-input
+            input-size="small"
+          />
+          <span class="form-tip">变化幅度超过 基线 × 此倍数 视为单次突变</span>
+        </el-form-item>
+        <el-form-item label="连续突变阈值">
+          <el-slider
+            v-model="localConfig.consecutiveThreshold"
+            :min="1"
+            :max="5"
+            :step="1"
+            show-input
+            input-size="small"
+          />
+          <span class="form-tip">连续出现此次数突变才标记为风险</span>
+        </el-form-item>
+        <el-form-item label="冷却时间(秒)">
+          <el-slider
+            v-model="cooldownSeconds"
+            :min="2"
+            :max="30"
+            :step="1"
+            show-input
+            input-size="small"
+          />
+          <span class="form-tip">同一节点短时间内不重复标记，避免刷屏</span>
+        </el-form-item>
+        <el-form-item label="历史片段长度">
+          <el-slider
+            v-model="localConfig.fragmentSize"
+            :min="10"
+            :max="60"
+            :step="5"
+            show-input
+            input-size="small"
+          />
+          <span class="form-tip">关联历史片段捕获的采样点数量</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resetConfig">重置默认</el-button>
+        <el-button type="primary" @click="applyConfig">应用配置</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, TitleComponent } from 'echarts/components'
-import { CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { GridComponent, TooltipComponent, TitleComponent, MarkPointComponent } from 'echarts/components'
+import { CircleCheckFilled, CircleCloseFilled, Warning, ArrowRight, Setting } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useOpcuaStore } from '../store/opcua'
+import type { AnomalyEvent } from '../types'
 
-use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent])
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, MarkPointComponent])
 
 const store = useOpcuaStore()
 
@@ -255,6 +444,113 @@ function buildChartOption(title: string, nodeId: string, color: string, unit: st
 const tempChartOption = computed(() => buildChartOption('温度趋势', 'temp_sensor', '#67c23a', '°C'))
 const pressureChartOption = computed(() => buildChartOption('压力趋势', 'pressure_transmitter', '#06b6d4', 'MPa'))
 const flowChartOption = computed(() => buildChartOption('流量趋势', 'flow_meter', '#60a5fa', 'L/min'))
+
+// ===== 异常波动识别 =====
+const selectedAnomaly = ref<AnomalyEvent | null>(null)
+const fragmentDialogVisible = ref(false)
+const configDialogVisible = ref(false)
+
+const localConfig = ref({
+  windowSize: store.anomalyConfig.windowSize,
+  mutationFactor: store.anomalyConfig.mutationFactor,
+  consecutiveThreshold: store.anomalyConfig.consecutiveThreshold,
+  cooldown: store.anomalyConfig.cooldown,
+  fragmentSize: store.anomalyConfig.fragmentSize
+})
+const cooldownSeconds = ref(Math.round(store.anomalyConfig.cooldown / 1000))
+
+function openFragment(anomaly: AnomalyEvent) {
+  selectedAnomaly.value = anomaly
+  fragmentDialogVisible.value = true
+}
+
+function applyConfig() {
+  localConfig.value.cooldown = cooldownSeconds.value * 1000
+  store.anomalyConfig.windowSize = localConfig.value.windowSize
+  store.anomalyConfig.mutationFactor = localConfig.value.mutationFactor
+  store.anomalyConfig.consecutiveThreshold = localConfig.value.consecutiveThreshold
+  store.anomalyConfig.cooldown = localConfig.value.cooldown
+  store.anomalyConfig.fragmentSize = localConfig.value.fragmentSize
+  configDialogVisible.value = false
+  ElMessage.success('检测配置已应用')
+}
+
+function resetConfig() {
+  localConfig.value = {
+    windowSize: 15,
+    mutationFactor: 4,
+    consecutiveThreshold: 2,
+    cooldown: 8000,
+    fragmentSize: 30
+  }
+  cooldownSeconds.value = 8
+}
+
+function getAnomalySeverityType(severity: AnomalyEvent['severity']) {
+  switch (severity) {
+    case 'Critical': return 'danger'
+    case 'High': return 'danger'
+    case 'Medium': return 'warning'
+    case 'Low': return 'info'
+  }
+}
+
+function getAnomalySeverityLabel(severity: AnomalyEvent['severity']) {
+  switch (severity) {
+    case 'Critical': return '严重'
+    case 'High': return '高'
+    case 'Medium': return '中'
+    case 'Low': return '低'
+  }
+}
+
+function formatAnomalyTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+// 关联历史片段趋势图（末位标记突变采样点）
+const fragmentChartOption = computed(() => {
+  const anomaly = selectedAnomaly.value
+  if (!anomaly) return {}
+  const data = anomaly.historyFragment.map(h => [h.timestamp, h.value])
+  const mutationPoint = data.length ? data[data.length - 1] : null
+  return {
+    title: { text: `${anomaly.nodeName} - 关联历史片段`, textStyle: { color: '#e0e0e0', fontSize: 14 }, left: 'center' },
+    tooltip: { trigger: 'axis' as const },
+    grid: { left: 60, right: 30, top: 50, bottom: 40 },
+    xAxis: {
+      type: 'time' as const,
+      axisLabel: { color: '#999', formatter: '{HH}:{mm}:{ss}' },
+      axisLine: { lineStyle: { color: '#444' } }
+    },
+    yAxis: {
+      type: 'value' as const,
+      axisLabel: { color: '#999' },
+      splitLine: { lineStyle: { color: '#333' } }
+    },
+    series: [{
+      type: 'line',
+      data,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 5,
+      lineStyle: { color: '#f59e0b', width: 2 },
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [{ offset: 0, color: '#f59e0b40' }, { offset: 1, color: '#f59e0b05' }]
+        }
+      },
+      markPoint: mutationPoint ? {
+        symbol: 'circle',
+        symbolSize: 14,
+        data: [{ coord: mutationPoint, value: '突变' }],
+        itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 2 },
+        label: { show: true, formatter: '突变', color: '#fff', fontSize: 11, position: 'top' }
+      } : undefined
+    }]
+  }
+})
 </script>
 
 <style scoped>
@@ -359,6 +655,196 @@ const flowChartOption = computed(() => buildChartOption('流量趋势', 'flow_me
 .chart {
   height: 220px;
   width: 100%;
+}
+
+/* 异常波动识别区域 */
+.anomaly-section {
+  margin-top: 20px;
+}
+
+.anomaly-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.anomaly-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f59e0b;
+  border-left-color: #f59e0b;
+}
+
+.anomaly-stats {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-left: 8px;
+}
+
+.anomaly-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.anomaly-item {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 6px;
+  padding: 10px 12px;
+  border-left: 3px solid #64748b;
+}
+
+.anomaly-critical {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.anomaly-high {
+  border-left-color: #f97316;
+  background: rgba(249, 115, 22, 0.06);
+}
+
+.anomaly-medium {
+  border-left-color: #eab308;
+  background: rgba(234, 179, 8, 0.05);
+}
+
+.anomaly-acknowledged {
+  opacity: 0.5;
+}
+
+.anomaly-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.anomaly-time {
+  font-size: 11px;
+  color: #64748b;
+  font-family: monospace;
+}
+
+.anomaly-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.anomaly-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.anomaly-node-name {
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.anomaly-ratio {
+  font-size: 13px;
+  color: #f59e0b;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.anomaly-message {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.anomaly-values {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.value-prev {
+  color: #94a3b8;
+}
+
+.value-cur {
+  color: #f87171;
+  font-weight: bold;
+}
+
+.anomaly-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.no-anomalies {
+  display: flex;
+  justify-content: center;
+  padding-top: 24px;
+}
+
+/* 关联历史片段弹窗 */
+.fragment-chart {
+  height: 280px;
+  width: 100%;
+}
+
+.fragment-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+}
+
+:deep(.fragment-dialog) {
+  --el-dialog-bg-color: rgba(30, 41, 59, 0.98);
+}
+
+:deep(.fragment-dialog .el-dialog__title),
+:deep(.fragment-dialog .el-dialog__body) {
+  color: #e2e8f0;
+}
+
+:deep(.fragment-dialog .el-descriptions__label) {
+  background: #1f2937 !important;
+  color: #94a3b8 !important;
+}
+
+:deep(.fragment-dialog .el-descriptions__content) {
+  color: #e2e8f0 !important;
+}
+
+/* 配置对话框样式 */
+:deep(.config-dialog) {
+  --el-dialog-bg-color: rgba(30, 41, 59, 0.98);
+}
+
+:deep(.config-dialog .el-dialog__title),
+:deep(.config-dialog .el-dialog__body) {
+  color: #e2e8f0;
+}
+
+:deep(.config-dialog .el-form-item__label) {
+  color: #94a3b8;
+}
+
+.form-tip {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.anomaly-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @media (max-width: 1200px) {
